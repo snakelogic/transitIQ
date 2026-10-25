@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: transit-iq-delhi
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --threads 4 --timeout 120
+    healthCheckPath: /health
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: CUSTOMER_STORAGE
+        value: memory
+      - key: TRANSIT_CACHE_BACKEND
+        value: memory
+      - key: SECRET_KEY
+        generateValue: true

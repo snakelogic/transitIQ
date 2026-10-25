@@ -1,0 +1,13 @@
+{% extends "auth_base.html" %}
+{% block title %}Create account · TransitIQ{% endblock %}
+{% block content %}
+<section class="auth-layout signup-layout"><div class="auth-promo"><div class="eyebrow"><span class="live-pulse"></span> MAKE THE CITY YOURS</div><h1>Every trip<br>starts with a<br><span>good view.</span></h1><p>Create your account to access your Delhi transit dashboard.</p><div class="promo-route"><span>●</span><i></i><span>●</span><i></i><span>●</span><b>Delhi</b></div><small>One account for your city’s mapped bus network</small></div><div class="auth-card"><div class="auth-card-icon">＋</div><div class="eyebrow">GET STARTED</div><h2>Create your account</h2><p class="auth-subtitle">A few details and you’re on your way.</p><form method="post" action="{{ url_for('auth.signup') }}" novalidate>
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <label for="full_name">Full name</label><input id="full_name" name="full_name" type="text" autocomplete="name" maxlength="80" placeholder="Your name" value="{{ values.full_name }}" required autofocus>
+  <label for="phone">Mobile number</label><input id="phone" name="phone" type="tel" autocomplete="tel" inputmode="tel" placeholder="+91 98765 43210" value="{{ values.phone }}" required>
+  <label for="email">Email address</label><input id="email" name="email" type="email" autocomplete="email" maxlength="254" placeholder="you@example.com" value="{{ values.email }}" required>
+  <label for="password">Password <span class="label-hint">At least 10 characters</span></label><div class="password-field"><input id="password" name="password" type="password" autocomplete="new-password" minlength="10" maxlength="128" placeholder="Create a strong password" required><button type="button" class="password-toggle" aria-label="Show password" data-password-toggle="password">Show</button></div>
+  <label for="confirm_password">Confirm password</label><div class="password-field"><input id="confirm_password" name="confirm_password" type="password" autocomplete="new-password" minlength="10" maxlength="128" placeholder="Enter your password again" required><button type="button" class="password-toggle" aria-label="Show password" data-password-toggle="confirm_password">Show</button></div>
+  <button class="auth-submit" type="submit">Create account <span>→</span></button>
+</form><div class="auth-switch">Already have an account? <a href="{{ url_for('auth.login') }}">Log in</a></div><div class="auth-security"><span>▣</span> Your password is securely hashed and never stored as plain text.</div></div></section>
+{% endblock %}

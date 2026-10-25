@@ -1,0 +1,5 @@
+{% extends "auth_base.html" %}
+{% block title %}Request expired · TransitIQ{% endblock %}
+{% block content %}
+<section class="auth-card error-card"><div class="auth-card-icon">!</div><div class="eyebrow">FORM SECURITY CHECK</div><h2>That form expired</h2><p class="auth-subtitle">{{ message or "Please go back, reload the page, and try again." }}</p><a class="button button-primary" href="{{ url_for('home') }}">Back to TransitIQ <span>→</span></a></section>
+{% endblock %}

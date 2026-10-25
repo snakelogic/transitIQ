@@ -1,0 +1,11 @@
+{% extends "auth_base.html" %}
+{% block title %}Log in · TransitIQ{% endblock %}
+{% block content %}
+<section class="auth-layout"><div class="auth-promo"><div class="eyebrow"><span class="live-pulse"></span> YOUR CITY, IN MOTION</div><h1>Welcome back<br>to a smoother<br><span>ride.</span></h1><p>Pick up where you left off and explore Delhi’s bus network.</p><div class="promo-route"><span>●</span><i></i><span>●</span><i></i><span>●</span><b>Delhi</b></div><small>Real mapped routes · Official vehicle feed when available</small></div><div class="auth-card"><div class="auth-card-icon">↗</div><div class="eyebrow">YOUR TRANSITIQ ACCOUNT</div><h2>Log in</h2><p class="auth-subtitle">Welcome back. Enter your account details below.</p><form method="post" action="{{ url_for('auth.login', next=next_url) if next_url else url_for('auth.login') }}" novalidate>
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="next" value="{{ next_url }}">
+  <label for="identifier">Email or mobile number</label><input id="identifier" name="identifier" type="text" autocomplete="username" inputmode="email" placeholder="you@example.com or mobile number" value="{{ request.form.get('identifier', '') }}" required autofocus>
+  <div class="field-heading"><label for="password">Password</label></div><div class="password-field"><input id="password" name="password" type="password" autocomplete="current-password" maxlength="128" placeholder="Enter your password" required><button type="button" class="password-toggle" aria-label="Show password" data-password-toggle="password">Show</button></div>
+  <div class="form-options"><label class="check-label"><input type="checkbox" name="remember"> <span>Remember me</span></label><span class="forgot-note">Password reset isn’t available yet</span></div>
+  <button class="auth-submit" type="submit">Log in <span>→</span></button>
+</form><div class="auth-switch">New to TransitIQ? <a href="{{ url_for('auth.signup') }}">Create an account</a></div><div class="auth-security"><span>▣</span> Your password is securely hashed and never stored as plain text.</div></div></section>
+{% endblock %}

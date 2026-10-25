@@ -1,0 +1,166 @@
+"""Live, cached transit features from OpenStreetMap's Overpass API."""
+
+from __future__ import annotations
+
+import json
+import os
+import ssl
+import threading
+import time
+from urllib.error import HTTPError, URLError
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
+
+import certifi
+from transit.cache import read_snapshot, write_snapshot
+
+
+DELHI_BBOX = (28.40, 76.84, 28.88, 77.36)  # south, west, north, east
+OVERPASS_URL = os.environ.get("OVERPASS_URL", "https://overpass-api.de/api/interpreter")
+CACHE_SECONDS = int(os.environ.get("OSM_CACHE_SECONDS", "900"))
+STALE_MAX_AGE_SECONDS = int(os.environ.get("OSM_STALE_MAX_AGE_SECONDS", "604800"))
+_cache_lock = threading.Lock()
+_cache: dict[str, object] = {"expires": 0, "payload": None}
+_refreshing = False
+_retry_after = 0.0
+
+
+class TransitSourceError(RuntimeError):
+    """The upstream mapping data source could not provide current data."""
+
+
+def _query() -> str:
+    south, west, north, east = DELHI_BBOX
+    bbox = f"{south},{west},{north},{east}"
+    return f"""[out:json][timeout:45];
+(
+  node[\"highway\"=\"bus_stop\"]({bbox});
+  node[\"public_transport\"=\"platform\"][\"bus\"=\"yes\"]({bbox});
+  relation[\"type\"=\"route\"][\"route\"=\"bus\"]({bbox});
+);
+out body geom;"""
+
+
+def _request_overpass() -> dict:
+    body = urlencode({"data": _query()}).encode("utf-8")
+    request = Request(
+        OVERPASS_URL,
+        data=body,
+        headers={
+            "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+            "User-Agent": "SmartBusTracking/0.2 (+local transit dashboard)",
+            "Accept": "application/json",
+        },
+        method="POST",
+    )
+    try:
+        with urlopen(request, timeout=55, context=ssl.create_default_context(cafile=certifi.where())) as response:
+            return json.loads(response.read())
+    except (HTTPError, URLError, TimeoutError, json.JSONDecodeError) as error:
+        raise TransitSourceError(f"OpenStreetMap Overpass request failed: {error}") from error
+
+
+def _normalise(payload: dict) -> dict:
+    stops: list[dict] = []
+    routes: list[dict] = []
+    features: list[dict] = []
+    for item in payload.get("elements", []):
+        tags = item.get("tags", {})
+        element_type = item.get("type")
+        if element_type == "node" and (tags.get("highway") == "bus_stop" or tags.get("public_transport") == "platform"):
+            stops.append({
+                "id": f"node/{item['id']}",
+                "name": tags.get("name") or tags.get("name:en") or "Unnamed bus stop",
+                "lat": item.get("lat"),
+                "lon": item.get("lon"),
+                "operator": tags.get("operator"),
+                "ref": tags.get("ref"),
+                "wheelchair": tags.get("wheelchair"),
+                "source_url": f"https://www.openstreetmap.org/node/{item['id']}",
+            })
+        elif element_type == "relation" and tags.get("route") == "bus":
+            route = {
+                "id": f"relation/{item['id']}",
+                "name": tags.get("name") or tags.get("ref") or f"Bus route {item['id']}",
+                "ref": tags.get("ref"),
+                "operator": tags.get("operator"),
+                "from": tags.get("from"),
+                "to": tags.get("to"),
+                "source_url": f"https://www.openstreetmap.org/relation/{item['id']}",
+            }
+            routes.append(route)
+            for member in item.get("members", []):
+                geometry = member.get("geometry")
+                if member.get("type") == "way" and geometry and len(geometry) > 1:
+                    features.append({
+                        "type": "Feature",
+                        "geometry": {"type": "LineString", "coordinates": [[point["lon"], point["lat"]] for point in geometry]},
+                        "properties": {"route_id": route["id"], "name": route["name"], "ref": route["ref"]},
+                    })
+    return {
+        "city": "Delhi",
+        "region": "India",
+        "bounds": {"south": DELHI_BBOX[0], "west": DELHI_BBOX[1], "north": DELHI_BBOX[2], "east": DELHI_BBOX[3]},
+        "stops": stops,
+        "routes": routes,
+        "route_features": {"type": "FeatureCollection", "features": features},
+        "counts": {"stops": len(stops), "routes": len(routes)},
+        "source": "OpenStreetMap contributors",
+        "source_url": "https://www.openstreetmap.org/",
+        "license": "ODbL",
+        "fetched_at": int(time.time()),
+        "cached_seconds": CACHE_SECONDS,
+    }
+
+
+def get_transit_data(force_refresh: bool = False) -> dict:
+    global _refreshing, _retry_after
+    now = time.time()
+    snapshot = read_snapshot("delhi-osm-transit")
+    with _cache_lock:
+        payload = _cache["payload"] if _cache["payload"] is not None else (snapshot[0] if snapshot else None)
+        saved_at = float(payload.get("fetched_at", now)) if payload else 0
+        if not force_refresh and payload is not None and now - saved_at < CACHE_SECONDS:
+            _cache["payload"] = payload
+            _cache["expires"] = now + max(0, CACHE_SECONDS - (now - saved_at))
+            return dict(payload)  # type: ignore[arg-type]
+        if not force_refresh and payload is not None and now - saved_at <= STALE_MAX_AGE_SECONDS:
+            stale = dict(payload)  # type: ignore[arg-type]
+            stale.update(stale=True, cache_age_seconds=max(0, int(now - saved_at)))
+            if not _refreshing and now >= _retry_after:
+                _refreshing = True
+                threading.Thread(target=_refresh_snapshot, daemon=True).start()
+            return stale
+        if _refreshing:
+            if payload is not None:
+                stale = dict(payload)  # type: ignore[arg-type]
+                stale.update(stale=True, cache_age_seconds=max(0, int(now - saved_at)))
+                return stale
+        _refreshing = True
+    try:
+        return _refresh_snapshot()
+    except TransitSourceError:
+        if payload is not None and now - saved_at <= STALE_MAX_AGE_SECONDS:
+            stale = dict(payload)  # type: ignore[arg-type]
+            stale.update(stale=True, cache_age_seconds=max(0, int(now - saved_at)))
+            return stale
+        raise
+
+
+def _refresh_snapshot() -> dict:
+    global _refreshing, _retry_after
+    try:
+        result = _normalise(_request_overpass())
+        write_snapshot("delhi-osm-transit", result, result["fetched_at"])
+        with _cache_lock:
+            _cache["payload"] = result
+            _cache["expires"] = time.time() + CACHE_SECONDS
+            _retry_after = 0
+        return result
+    except TransitSourceError:
+        with _cache_lock:
+            _retry_after = time.time() + 30
+        raise
+    finally:
+        with _cache_lock:
+            _refreshing = False

@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#111817">
+  <title>{% block title %}TransitIQ{% endblock %}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='auth.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='ride.css') }}">
+  <script src="{{ url_for('static', filename='auth.js') }}" defer></script>
+</head>
+<body class="auth-page">
+  <header class="auth-nav"><a class="auth-brand" href="{{ url_for('home') }}"><span class="auth-brand-mark">T</span>Transit<span>IQ</span></a><nav><a href="{{ url_for('home') }}">Home</a><a href="{{ url_for('home') }}#how-it-works">How it works</a><a class="auth-nav-track" href="{{ url_for('auth.login', next=url_for('dashboard')) }}">Track bus <span>→</span></a></nav></header>
+  <main class="auth-main">
+    {% with messages = get_flashed_messages(with_categories=true) %}{% if messages %}<div class="flash-stack" role="status">{% for category, message in messages %}<div class="flash-message flash-{{ category }}">{{ message }}</div>{% endfor %}</div>{% endif %}{% endwith %}
+    {% block content %}{% endblock %}
+  </main>
+  <footer class="auth-footer"><span>TransitIQ · Delhi</span><span>Mapped transit data from OpenStreetMap</span></footer>
+</body>
+</html>
