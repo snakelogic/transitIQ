@@ -16,7 +16,9 @@ from transit.cache import read_snapshot, write_snapshot
 
 
 DELHI_BBOX = (28.40, 76.84, 28.88, 77.36)  # south, west, north, east
-OVERPASS_URL = os.environ.get("OVERPASS_URL", "https://overpass-api.de/api/interpreter")
+DEFAULT_OVERPASS_URL = "https://overpass-api.de/api/interpreter"
+ALTERNATE_OVERPASS_URL = "https://overpass.private.coffee/api/interpreter"
+OVERPASS_URL = os.environ.get("OVERPASS_URL", DEFAULT_OVERPASS_URL)
 CACHE_SECONDS = int(os.environ.get("OSM_CACHE_SECONDS", "900"))
 STALE_MAX_AGE_SECONDS = int(os.environ.get("OSM_STALE_MAX_AGE_SECONDS", "604800"))
 _cache_lock = threading.Lock()
@@ -43,21 +45,40 @@ out body geom;"""
 
 def _request_overpass() -> dict:
     body = urlencode({"data": _query()}).encode("utf-8")
-    request = Request(
-        OVERPASS_URL,
-        data=body,
-        headers={
-            "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-            "User-Agent": "SmartBusTracking/0.2 (+local transit dashboard)",
-            "Accept": "application/json",
-        },
-        method="POST",
-    )
-    try:
-        with urlopen(request, timeout=55, context=ssl.create_default_context(cafile=certifi.where())) as response:
-            return json.loads(response.read())
-    except (HTTPError, URLError, TimeoutError, json.JSONDecodeError) as error:
-        raise TransitSourceError(f"OpenStreetMap Overpass request failed: {error}") from error
+    configured_fallbacks = [
+        endpoint.strip()
+        for endpoint in os.environ.get("OVERPASS_FALLBACK_URLS", "").split(",")
+        if endpoint.strip()
+    ]
+    endpoints = list(dict.fromkeys([
+        os.environ.get("OVERPASS_URL", OVERPASS_URL),
+        *configured_fallbacks,
+        DEFAULT_OVERPASS_URL,
+        ALTERNATE_OVERPASS_URL,
+    ]))
+    failures = []
+    for endpoint in endpoints:
+        request = Request(
+            endpoint,
+            data=body,
+            headers={
+                "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+                "User-Agent": "SmartBusTracking/0.3 (+local transit dashboard)",
+                "Accept": "application/json",
+            },
+            method="POST",
+        )
+        try:
+            with urlopen(request, timeout=55, context=ssl.create_default_context(cafile=certifi.where())) as response:
+                return json.loads(response.read())
+        except HTTPError as error:
+            failures.append(f"{endpoint}: HTTP {error.code}")
+            # A malformed query or rate limit will not be fixed by sending it to another instance.
+            if error.code < 500:
+                break
+        except (URLError, TimeoutError, json.JSONDecodeError) as error:
+            failures.append(f"{endpoint}: {error}")
+    raise TransitSourceError("All configured OpenStreetMap Overpass endpoints failed: " + "; ".join(failures))
 
 
 def _normalise(payload: dict) -> dict:
