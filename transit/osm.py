@@ -19,6 +19,7 @@ DELHI_BBOX = (28.40, 76.84, 28.88, 77.36)  # south, west, north, east
 DEFAULT_OVERPASS_URL = "https://overpass-api.de/api/interpreter"
 ALTERNATE_OVERPASS_URL = "https://overpass.private.coffee/api/interpreter"
 OVERPASS_URL = os.environ.get("OVERPASS_URL", DEFAULT_OVERPASS_URL)
+OVERPASS_REQUEST_TIMEOUT_SECONDS = float(os.environ.get("OVERPASS_REQUEST_TIMEOUT_SECONDS", "12"))
 CACHE_SECONDS = int(os.environ.get("OSM_CACHE_SECONDS", "900"))
 STALE_MAX_AGE_SECONDS = int(os.environ.get("OSM_STALE_MAX_AGE_SECONDS", "604800"))
 _cache_lock = threading.Lock()
@@ -69,7 +70,7 @@ def _request_overpass() -> dict:
             method="POST",
         )
         try:
-            with urlopen(request, timeout=55, context=ssl.create_default_context(cafile=certifi.where())) as response:
+            with urlopen(request, timeout=OVERPASS_REQUEST_TIMEOUT_SECONDS, context=ssl.create_default_context(cafile=certifi.where())) as response:
                 return json.loads(response.read())
         except HTTPError as error:
             failures.append(f"{endpoint}: HTTP {error.code}")
@@ -157,6 +158,9 @@ def get_transit_data(force_refresh: bool = False) -> dict:
                 stale = dict(payload)  # type: ignore[arg-type]
                 stale.update(stale=True, cache_age_seconds=max(0, int(now - saved_at)))
                 return stale
+            raise TransitSourceError("A transit data refresh is already in progress. Retry in a few seconds.")
+        if not force_refresh and payload is None and now < _retry_after:
+            raise TransitSourceError("Transit data is temporarily unavailable. Retry in a few seconds.")
         _refreshing = True
     try:
         return _refresh_snapshot()
