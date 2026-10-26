@@ -33,16 +33,20 @@ class TransitSourceError(RuntimeError):
     """The upstream mapping data source could not provide current data."""
 
 
-def _query(include_geometry: bool = True) -> str:
+def _query(include_geometry: bool = True, include_routes: bool = True) -> str:
     south, west, north, east = DELHI_BBOX
     bbox = f"{south},{west},{north},{east}"
+    elements = f"""node[\"highway\"=\"bus_stop\"]({bbox});
+  node[\"public_transport\"=\"platform\"][\"bus\"=\"yes\"]({bbox});"""
+    if include_routes:
+        elements += f"""
+  relation[\"type\"=\"route\"][\"route\"=\"bus\"]({bbox});"""
+    output = "body geom" if include_geometry else ("tags center" if include_routes else "body")
     return f"""[out:json][timeout:45];
 (
-  node[\"highway\"=\"bus_stop\"]({bbox});
-  node[\"public_transport\"=\"platform\"][\"bus\"=\"yes\"]({bbox});
-  relation[\"type\"=\"route\"][\"route\"=\"bus\"]({bbox});
+  {elements}
 );
-out {"body geom" if include_geometry else "tags center"};"""
+out {output};"""
 
 
 def _post_query(endpoint: str, query: str) -> dict:
@@ -95,11 +99,22 @@ def _request_overpass() -> dict:
         try:
             payload = _post_query(endpoint, _query(include_geometry=False))
             payload["route_geometry_available"] = False
+            payload["_transit_data_mode"] = "metadata"
             return payload
         except HTTPError as error:
             failures.append(f"{endpoint} (metadata): HTTP {error.code}")
         except (URLError, TimeoutError, json.JSONDecodeError, OSError) as error:
             failures.append(f"{endpoint} (metadata): {error}")
+
+    for endpoint in dict.fromkeys(metadata_fallbacks):
+        try:
+            payload = _post_query(endpoint, _query(include_geometry=False, include_routes=False))
+            payload["_transit_data_mode"] = "stops_only"
+            return payload
+        except HTTPError as error:
+            failures.append(f"{endpoint} (stops only): HTTP {error.code}")
+        except (URLError, TimeoutError, json.JSONDecodeError, OSError) as error:
+            failures.append(f"{endpoint} (stops only): {error}")
     raise TransitSourceError("All configured OpenStreetMap Overpass endpoints failed: " + "; ".join(failures))
 
 
@@ -149,6 +164,7 @@ def _normalise(payload: dict) -> dict:
         "route_features": {"type": "FeatureCollection", "features": features},
         "route_geometry_available": bool(features),
         "counts": {"stops": len(stops), "routes": len(routes)},
+        "route_data_available": payload.get("_transit_data_mode") != "stops_only",
         "source": "OpenStreetMap contributors",
         "source_url": "https://www.openstreetmap.org/",
         "license": "ODbL",

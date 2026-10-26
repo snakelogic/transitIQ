@@ -197,9 +197,11 @@ function renderFleetPage(payload) {
 function renderTransit(data) {
   transitData = data;
   updateDestinationSuggestions(data);
-  $("#map-data-status").textContent = data.route_geometry_available
-    ? "Mapped bus stops and route geometry across Delhi"
-    : "Showing real mapped stops and route endpoints; route line geometry is currently unavailable.";
+  $("#map-data-status").textContent = !data.route_data_available
+    ? "Showing real mapped bus stops only; route data is temporarily unavailable."
+    : data.route_geometry_available
+      ? "Mapped bus stops and route geometry across Delhi"
+      : "Showing real mapped stops and route endpoints; route line geometry is currently unavailable.";
   $("#metric-stops").textContent = data.counts.stops.toLocaleString("en-IN");
   $("#metric-routes").textContent = data.counts.routes.toLocaleString("en-IN");
   $("#stop-count").textContent = data.counts.stops.toLocaleString("en-IN");

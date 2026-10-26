@@ -70,6 +70,28 @@ class OverpassFallbackTests(unittest.TestCase):
         query = parse_qs(urlopen.call_args_list[-1].args[0].data.decode())["data"][0]
         self.assertIn("out tags center;", query)
 
+    def test_route_timeout_falls_back_to_real_stops_only(self):
+        payload = b'{"elements": [{"type": "node", "id": 7, "lat": 28.6, "lon": 77.2, "tags": {"highway": "bus_stop", "name": "Central Stop"}}]}'
+        gateway_timeout = HTTPError(osm.THIRD_OVERPASS_URL, 504, "Gateway Timeout", {}, None)
+        with patch.dict("os.environ", {
+            "OVERPASS_URL": osm.THIRD_OVERPASS_URL,
+            "OVERPASS_FALLBACK_URLS": "",
+        }, clear=False), patch("transit.osm.urlopen", side_effect=[
+            gateway_timeout,
+            URLError("network unreachable"),
+            URLError("network unreachable"),
+            gateway_timeout,
+            FakeResponse(payload),
+        ]) as urlopen:
+            result = osm._normalise(osm._request_overpass())
+
+        self.assertEqual(result["counts"], {"stops": 1, "routes": 0})
+        self.assertFalse(result["route_data_available"])
+        self.assertEqual(result["stops"][0]["name"], "Central Stop")
+        self.assertEqual(urlopen.call_count, 5)
+        stops_query = parse_qs(urlopen.call_args_list[-1].args[0].data.decode())["data"][0]
+        self.assertNotIn('"route"="bus"', stops_query)
+
     def test_parallel_cold_requests_do_not_launch_duplicate_upstream_calls(self):
         with patch.object(osm, "read_snapshot", return_value=None), \
              patch.object(osm, "_cache", {"payload": None, "expires": 0}), \

@@ -14,7 +14,7 @@ Fetches normalized Delhi bus stops and mapped bus route relations from OpenStree
 
 Requests use a 15-minute cache. Local development persists snapshots in SQLite; deployment can use `TRANSIT_CACHE_BACKEND=memory`, which keeps them only in process memory. While a cached snapshot is less than seven days old, source refresh can happen in the background and the API returns it with `stale: true` and `cache_age_seconds`. Memory snapshots are lost when the process restarts or sleeps. The current Delhi bounding box is configured in `transit/osm.py`.
 
-If all available public Overpass servers time out while returning route geometry, the API retries for real stop and route endpoint metadata without geometry. In that response `route_geometry_available` is `false` and `route_features` is empty; the dashboard labels this partial map state rather than inventing route lines.
+If public Overpass servers time out while returning the full route geometry, the API retries for real stop and route endpoint metadata without geometry. If those queries also time out, it requests mapped bus stops only. Metadata fallback responses set `route_geometry_available` to `false`; stop-only responses set `route_data_available` to `false`. No route lines or stop records are invented, and the dashboard labels the partial map state.
 
 ## `GET /directions`
 
