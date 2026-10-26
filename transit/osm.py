@@ -18,6 +18,7 @@ from transit.cache import read_snapshot, write_snapshot
 DELHI_BBOX = (28.40, 76.84, 28.88, 77.36)  # south, west, north, east
 DEFAULT_OVERPASS_URL = "https://overpass-api.de/api/interpreter"
 ALTERNATE_OVERPASS_URL = "https://overpass.private.coffee/api/interpreter"
+THIRD_OVERPASS_URL = "https://maps.mail.ru/osm/tools/overpass/api/interpreter"
 OVERPASS_URL = os.environ.get("OVERPASS_URL", DEFAULT_OVERPASS_URL)
 OVERPASS_REQUEST_TIMEOUT_SECONDS = float(os.environ.get("OVERPASS_REQUEST_TIMEOUT_SECONDS", "12"))
 CACHE_SECONDS = int(os.environ.get("OSM_CACHE_SECONDS", "900"))
@@ -56,6 +57,7 @@ def _request_overpass() -> dict:
         *configured_fallbacks,
         DEFAULT_OVERPASS_URL,
         ALTERNATE_OVERPASS_URL,
+        THIRD_OVERPASS_URL,
     ]))
     failures = []
     for endpoint in endpoints:

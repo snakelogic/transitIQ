@@ -36,9 +36,11 @@ class OverpassFallbackTests(unittest.TestCase):
         with patch.dict("os.environ", {
             "OVERPASS_URL": "https://primary.example/interpreter",
             "OVERPASS_FALLBACK_URLS": "https://backup.example/interpreter",
-        }, clear=False), patch("transit.osm.urlopen", side_effect=URLError("network unreachable")):
-            with self.assertRaisesRegex(osm.TransitSourceError, "All configured OpenStreetMap Overpass endpoints failed"):
+        }, clear=False), patch("transit.osm.urlopen", side_effect=URLError("network unreachable")) as urlopen:
+            with self.assertRaisesRegex(osm.TransitSourceError, "All configured OpenStreetMap Overpass endpoints failed") as error:
                 osm._request_overpass()
+        self.assertIn(osm.THIRD_OVERPASS_URL, str(error.exception))
+        self.assertEqual(urlopen.call_count, 5)
 
     def test_parallel_cold_requests_do_not_launch_duplicate_upstream_calls(self):
         with patch.object(osm, "read_snapshot", return_value=None), \
