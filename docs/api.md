@@ -14,6 +14,8 @@ Fetches normalized Delhi bus stops and mapped bus route relations from OpenStree
 
 Requests use a 15-minute cache. Local development persists snapshots in SQLite; deployment can use `TRANSIT_CACHE_BACKEND=memory`, which keeps them only in process memory. While a cached snapshot is less than seven days old, source refresh can happen in the background and the API returns it with `stale: true` and `cache_age_seconds`. Memory snapshots are lost when the process restarts or sleeps. The current Delhi bounding box is configured in `transit/osm.py`.
 
+If all available public Overpass servers time out while returning route geometry, the API retries for real stop and route endpoint metadata without geometry. In that response `route_geometry_available` is `false` and `route_features` is empty; the dashboard labels this partial map state rather than inventing route lines.
+
 ## `GET /directions`
 
 Searches `from` and `to` query parameters against OSM stop names/references and route relation `from`/`to` tags. Both parameters are required and limited to 120 characters. The response uses `status: "routes_found"`, `"no_direct_route"`, or `"unmatched_locations"`. Matching routes include their route reference, mapped boarding/destination endpoint labels, any matching OTD vehicles, and only the corresponding route geometry. No ETA or duration is returned because this app has no timetable data. Intermediate stops are empty because the current normalized OSM source does not provide a dependable stop sequence. When there is no direct match, `alternatives` may include routes that match one of the entered endpoints; these are suggestions, not connecting itineraries. OTD vehicle positions are optional and are omitted when the live feed is unavailable.

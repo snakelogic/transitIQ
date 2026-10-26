@@ -33,7 +33,7 @@ class TransitSourceError(RuntimeError):
     """The upstream mapping data source could not provide current data."""
 
 
-def _query() -> str:
+def _query(include_geometry: bool = True) -> str:
     south, west, north, east = DELHI_BBOX
     bbox = f"{south},{west},{north},{east}"
     return f"""[out:json][timeout:45];
@@ -42,11 +42,25 @@ def _query() -> str:
   node[\"public_transport\"=\"platform\"][\"bus\"=\"yes\"]({bbox});
   relation[\"type\"=\"route\"][\"route\"=\"bus\"]({bbox});
 );
-out body geom;"""
+out {"body geom" if include_geometry else "tags center"};"""
+
+
+def _post_query(endpoint: str, query: str) -> dict:
+    request = Request(
+        endpoint,
+        data=urlencode({"data": query}).encode("utf-8"),
+        headers={
+            "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+            "User-Agent": "SmartBusTracking/0.3 (+local transit dashboard)",
+            "Accept": "application/json",
+        },
+        method="POST",
+    )
+    with urlopen(request, timeout=OVERPASS_REQUEST_TIMEOUT_SECONDS, context=ssl.create_default_context(cafile=certifi.where())) as response:
+        return json.loads(response.read())
 
 
 def _request_overpass() -> dict:
-    body = urlencode({"data": _query()}).encode("utf-8")
     configured_fallbacks = [
         endpoint.strip()
         for endpoint in os.environ.get("OVERPASS_FALLBACK_URLS", "").split(",")
@@ -60,27 +74,32 @@ def _request_overpass() -> dict:
         THIRD_OVERPASS_URL,
     ]))
     failures = []
+    metadata_fallbacks = []
     for endpoint in endpoints:
-        request = Request(
-            endpoint,
-            data=body,
-            headers={
-                "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-                "User-Agent": "SmartBusTracking/0.3 (+local transit dashboard)",
-                "Accept": "application/json",
-            },
-            method="POST",
-        )
         try:
-            with urlopen(request, timeout=OVERPASS_REQUEST_TIMEOUT_SECONDS, context=ssl.create_default_context(cafile=certifi.where())) as response:
-                return json.loads(response.read())
+            return _post_query(endpoint, _query())
         except HTTPError as error:
             failures.append(f"{endpoint}: HTTP {error.code}")
             # A malformed query or rate limit will not be fixed by sending it to another instance.
             if error.code < 500:
                 break
-        except (URLError, TimeoutError, json.JSONDecodeError) as error:
+            metadata_fallbacks.insert(0, endpoint)
+        except (URLError, TimeoutError, json.JSONDecodeError, OSError) as error:
             failures.append(f"{endpoint}: {error}")
+            if "timed out" in str(error).lower():
+                metadata_fallbacks.append(endpoint)
+
+    # Bus-stop points and route endpoint tags are useful even when a provider
+    # cannot build every route's full geometry for this large region.
+    for endpoint in dict.fromkeys(metadata_fallbacks):
+        try:
+            payload = _post_query(endpoint, _query(include_geometry=False))
+            payload["route_geometry_available"] = False
+            return payload
+        except HTTPError as error:
+            failures.append(f"{endpoint} (metadata): HTTP {error.code}")
+        except (URLError, TimeoutError, json.JSONDecodeError, OSError) as error:
+            failures.append(f"{endpoint} (metadata): {error}")
     raise TransitSourceError("All configured OpenStreetMap Overpass endpoints failed: " + "; ".join(failures))
 
 
@@ -128,6 +147,7 @@ def _normalise(payload: dict) -> dict:
         "stops": stops,
         "routes": routes,
         "route_features": {"type": "FeatureCollection", "features": features},
+        "route_geometry_available": bool(features),
         "counts": {"stops": len(stops), "routes": len(routes)},
         "source": "OpenStreetMap contributors",
         "source_url": "https://www.openstreetmap.org/",
